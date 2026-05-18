@@ -282,11 +282,11 @@ const deleteStudentService = async (studentId) => {
   }
  
   await Promise.all([
-    User.findByIdAndUpdate(studentId, { isActive: false }),
-    Ticket.updateMany({ student: studentId }, { isActive: false }),
-    Consultation.updateMany({ student: studentId }, { isActive: false }),
-    SecurityAlert.updateMany({ student: studentId }, { isActive: false }),
-    StudentAccess.updateMany({ student: studentId }, { isActive: false }),
+    User.findByIdAndDelete(studentId),
+    Ticket.deleteMany({ student: studentId }),
+    Consultation.deleteMany({ student: studentId }),
+    SecurityAlert.deleteMany({ student: studentId }),
+    StudentAccess.deleteMany({ student: studentId }),
   ]);
  
   return null;
