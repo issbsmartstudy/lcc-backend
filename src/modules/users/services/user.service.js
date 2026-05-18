@@ -1,13 +1,17 @@
 import crypto from 'crypto';
 import User from '../../../models/user.model.js';
+import Ticket from '../../../models/ticket.model.js';
+import Consultation from '../../../models/consultation.model.js';
+import SecurityAlert from '../../../models/securityAlert.model.js';
+import StudentAccess from '../../../models/studentAccess.model.js';
 import { hashPassword, welcomeStudentTemplate, passwordResetTemplate } from '../../../shared/index.js';
 import { sendEmail } from '../../../config/email.js';
-
+ 
 const generateUsername = async (fullName) => {
   const base = fullName.split(' ')[0].toLowerCase().replace(/[^a-z0-9]/g, '');
   let isUnique = false;
   let username = '';
-
+ 
   while (!isUnique) {
     const randomNum = Math.floor(1000 + (Math.random() * 9000));
     username = `${base}_lcc_${randomNum}`;
@@ -16,15 +20,15 @@ const generateUsername = async (fullName) => {
   }
   return username;
 };
-
+ 
 const generateRandomPassword = () => {
   return crypto.randomBytes(6).toString('hex');
 };
-
+ 
 const generateEnrollmentId = async () => {
   let isUnique = false;
   let enrollId = '';
-
+ 
   while (!isUnique) {
     const randomNum = Math.floor(100000 + (Math.random() * 900000));
     enrollId = `LCC-STU-${randomNum}`;
@@ -33,7 +37,7 @@ const generateEnrollmentId = async () => {
   }
   return enrollId;
 };
-
+ 
 const createStudentService = async (adminId, data) => {
   const existingEmail = await User.findOne({ email: data.email.toLowerCase() });
   if (existingEmail) {
@@ -41,16 +45,16 @@ const createStudentService = async (adminId, data) => {
     error.statusCode = 400;
     throw error;
   }
-
+ 
   const username = await generateUsername(data.fullName);
   const plainPassword = generateRandomPassword();
   const enrollmentId = await generateEnrollmentId();
   const hashedPassword = await hashPassword(plainPassword);
   const paymentDate = data.paymentDate ? new Date(data.paymentDate) : new Date();
-
+ 
   const validityDate = new Date(paymentDate);
   validityDate.setDate(validityDate.getDate() + data.courseDuration);
-
+ 
   const newStudent = await User.create({
     role: 'student',
     fullName: data.fullName,
@@ -68,19 +72,19 @@ const createStudentService = async (adminId, data) => {
     allowedIps: [],
     isActive: true,
   });
-
+ 
   const welcomeEmail = welcomeStudentTemplate(newStudent.fullName, username, plainPassword);
   await sendEmail({ to: newStudent.email, ...welcomeEmail });
-
+ 
   const studentObj = newStudent.toObject();
   delete studentObj.password;
-
+ 
   return {
     student: studentObj,
     credentialsGenerated: { username, password: plainPassword },
   };
 };
-
+ 
 const updateHeartbeatService = async (userId, data) => {
   const user = await User.findByIdAndUpdate(
     userId,
@@ -91,15 +95,15 @@ const updateHeartbeatService = async (userId, data) => {
     },
     { new: true }
   ).select('isBlocked').lean();
-
+ 
   return { isBlocked: user?.isBlocked ?? false };
 };
-
+ 
 const locationDeniedService = async (userId) => {
   await User.findByIdAndUpdate(userId, { isActive: false, isBlocked: true });
   return null;
 };
-
+ 
 const updateStudentStatusService = async (studentId, data) => {
   const user = await User.findById(studentId);
   if (!user) {
@@ -107,7 +111,7 @@ const updateStudentStatusService = async (studentId, data) => {
     error.statusCode = 404;
     throw error;
   }
-
+ 
   if (data.action === 'deactivate') {
     user.isActive = false;
     user.isBlocked = false;
@@ -122,13 +126,13 @@ const updateStudentStatusService = async (studentId, data) => {
     currentValidity.setDate(currentValidity.getDate() + data.extendedDays);
     user.validityDate = currentValidity;
   }
-
+ 
   await user.save();
   const updatedUser = user.toObject();
   delete updatedUser.password;
   return updatedUser;
 };
-
+ 
 const resetStudentPasswordService = async (studentId) => {
   const user = await User.findById(studentId);
   if (!user) {
@@ -136,19 +140,19 @@ const resetStudentPasswordService = async (studentId) => {
     error.statusCode = 404;
     throw error;
   }
-
+ 
   const plainPassword = generateRandomPassword();
   const hashedPassword = await hashPassword(plainPassword);
-
+ 
   user.password = hashedPassword;
   await user.save();
-
+ 
   const resetEmail = passwordResetTemplate(user.fullName, user.username, plainPassword);
   await sendEmail({ to: user.email, ...resetEmail });
-
+ 
   return { newPassword: plainPassword };
 };
-
+ 
 const updateIpsService = async (studentId, data) => {
   const user = await User.findById(studentId);
   if (!user) {
@@ -156,7 +160,7 @@ const updateIpsService = async (studentId, data) => {
     error.statusCode = 404;
     throw error;
   }
-
+ 
   if (data.action === 'reset') {
     user.allowedIps = [];
   } else if (data.action === 'block_ip') {
@@ -168,11 +172,11 @@ const updateIpsService = async (studentId, data) => {
     }
     entry.isBlocked = true;
   }
-
+ 
   await user.save();
   return null;
 };
-
+ 
 const setStudentPasswordService = async (studentId, data) => {
   const user = await User.findById(studentId);
   if (!user) {
@@ -180,19 +184,19 @@ const setStudentPasswordService = async (studentId, data) => {
     error.statusCode = 404;
     throw error;
   }
-
+ 
   const hashedPassword = await hashPassword(data.password);
   user.password = hashedPassword;
   await user.save();
-
+ 
   if (data.sendEmail) {
     const resetEmail = passwordResetTemplate(user.fullName, user.username, data.password);
     await sendEmail({ to: user.email, ...resetEmail });
   }
-
+ 
   return null;
 };
-
+ 
 const updateStudentService = async (studentId, data) => {
   const user = await User.findById(studentId);
   if (!user) {
@@ -200,23 +204,23 @@ const updateStudentService = async (studentId, data) => {
     error.statusCode = 404;
     throw error;
   }
-
+ 
   if (data.fullName !== undefined) { user.fullName = data.fullName; }
   if (data.phone !== undefined) { user.phone = data.phone; }
   if (data.courseName !== undefined) { user.courseName = data.courseName; }
   if (data.courseDuration !== undefined) { user.courseDuration = data.courseDuration; }
   if (data.paymentAmount !== undefined) { user.paymentAmount = data.paymentAmount; }
   if (data.category !== undefined) { user.category = data.category || null; }
-
+ 
   await user.save();
   const updatedUser = user.toObject();
   delete updatedUser.password;
   return updatedUser;
 };
-
+ 
 const getStudentsService = async (query = {}) => {
   const filter = { role: 'student' };
-
+ 
   if (query.search) {
     const re = new RegExp(query.search, 'i');
     filter.$or = [
@@ -226,13 +230,13 @@ const getStudentsService = async (query = {}) => {
       { enrollmentId: re },
     ];
   }
-
+ 
   if (query.category) {
     filter.category = query.category;
   }
-
+ 
   const selectFields = 'fullName email username phone courseName courseDuration paymentAmount validityDate enrollmentId category allowedIps isActive isBlocked lastLat lastLng createdAt';
-
+ 
   if (!query.page) {
     return await User.find(filter)
       .select(selectFields)
@@ -240,11 +244,11 @@ const getStudentsService = async (query = {}) => {
       .sort({ createdAt: -1 })
       .lean();
   }
-
+ 
   const page = parseInt(query.page, 10) || 1;
   const limit = parseInt(query.limit, 10) || 10;
   const skip = (page - 1) * limit;
-
+ 
   const [total, items] = await Promise.all([
     User.countDocuments(filter),
     User.find(filter)
@@ -255,17 +259,17 @@ const getStudentsService = async (query = {}) => {
       .limit(limit)
       .lean(),
   ]);
-
+ 
   return { items, pagination: { total, page, limit, hasNextPage: skip + items.length < total } };
 };
-
+ 
 const acceptTermsService = async (userId) => {
   await User.findByIdAndUpdate(userId, { hasAcceptedTerms: true });
   return null;
 };
-
+ 
 const deleteStudentService = async (studentId) => {
-  const user = await User.findById(studentId);
+  const user = await User.findById(studentId).select('role');
   if (!user) {
     const error = new Error('Student not found');
     error.statusCode = 404;
@@ -276,10 +280,18 @@ const deleteStudentService = async (studentId) => {
     error.statusCode = 400;
     throw error;
   }
-  await User.findByIdAndDelete(studentId);
+ 
+  await Promise.all([
+    User.findByIdAndUpdate(studentId, { isActive: false }),
+    Ticket.updateMany({ student: studentId }, { isActive: false }),
+    Consultation.updateMany({ student: studentId }, { isActive: false }),
+    SecurityAlert.updateMany({ student: studentId }, { isActive: false }),
+    StudentAccess.updateMany({ student: studentId }, { isActive: false }),
+  ]);
+ 
   return null;
 };
-
+ 
 export {
   getStudentsService,
   createStudentService,
